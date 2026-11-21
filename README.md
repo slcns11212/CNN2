@@ -1147,3 +1147,17 @@ FC 10 8192
 
 *文档维护提醒：修改任何命令行参数、模型格式、BN 规则、预处理默认值或构建配置后，
 请同步更新本 README 对应章节。*
+
+---
+
+## 19. 许可证
+
+本项目采用 **MIT 许可证**，完整条款见仓库根目录 [`LICENSE`](LICENSE)。
+
+Copyright (c) 2026 AT-ELECT
+
+### 第三方组件
+
+- **FTXUI 7.0.3**（vendored 于 `third_party/ftxui/`）采用 MIT 许可证，版权归 Arthur Sonzogni，
+  完整条款见 [`third_party/ftxui/LICENSE`](third_party/ftxui/LICENSE)。
+  该许可证随源码保留，不受本项目许可证影响。
