@@ -1,0 +1,44 @@
+FTXUI Amalgamated Package
+=========================
+
+Version        : 7.0.3 (upstream commit f921fad)
+Download URL   : https://github.com/ArthurSonzogni/FTXUI/releases/download/v7.0.3/ftxui-amalgamated.zip
+Zip SHA256     : 63D13BB65747BDBF0EDF04D83CE490708022371CF378F15FAD8489249EA4FD9A
+Obtained date  : 2026-10-31
+Package type   : amalgamated (split: ftxui.hpp + ftxui.cpp; plus header-only ftxui_all.hpp)
+
+Files in this directory (actual, as extracted from the zip):
+  ftxui.hpp        114489 bytes
+  ftxui.cpp        555649 bytes   (C20 PATCH applied; 550513 bytes before patch)
+  ftxui_all.hpp    665037 bytes
+  LICENSE            1078 bytes
+  VERSION.txt        (this file)
+
+C20 PATCH
+=========
+Patched file   : ftxui.cpp
+Patch date     : 2026-10-31
+Marker         : "C20 PATCH BEGIN/END: Windows mouse" (two paired blocks)
+
+  (1) App::Internal: added the last_mouse_button_ member, which remembers the
+      last pressed mouse button so a release event (where the console clears
+      dwButtonState) still carries the button being released.
+
+  (2) Internal::FetchTerminalEvents: added the _WIN32 MOUSE_EVENT branch that
+      converts Win32 console mouse records into FTXUI Mouse events.
+
+Purpose:
+  Deliver mouse input when running under conhost, where FTXUI's native
+  terminal mouse parser never sees anything because conhost does not emit
+  SGR mouse reports. Under Windows Terminal the SGR mouse sequences are handled
+  by FTXUI's native parser instead; the two paths are complementary and do not
+  overlap.
+
+Notes:
+  - Amalgamated layout is available; NO fallback to the source tree was needed.
+  - Windows/MSVC requires: /std:c++17 /utf-8 /EHsc /DUNICODE /D_UNICODE /DNOMINMAX
+  - Link against threads.
+  - Split usage: include "ftxui.hpp" and compile "ftxui.cpp" into the target.
+  - Header-only usage: in exactly one .cpp define FTXUI_IMPLEMENTATION before
+    #include "ftxui_all.hpp"; other files just #include "ftxui_all.hpp".
+  - This is a single self-contained header; there is NO ftxui/... include tree.

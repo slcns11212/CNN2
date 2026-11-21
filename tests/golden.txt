@@ -1,0 +1,198 @@
+# ============================================================================
+# CNN2 阶段0 回归 golden 基线
+# ----------------------------------------------------------------------------
+# 用途：为当前 2 层网络行为上锁。后续架构重构（通用化 depth 等）若导致下列
+#       任一数值/结构/退出码偏离，即判定为退化。
+#
+# 重要原则：
+#   * gen 只做“结构 golden”（头部 / 维度 / 标签行），不做权重数值 golden
+#     —— gen 的随机初始化、增强 RNG、GPU 洗牌受时间/随机源影响，不可复现。
+#   * 固定模型 + 固定数据的推理（CPU/GPU test）可确定复现 → 做精确数值 golden。
+#   * CPU 与 GPU 推理结果在 golden 中完全一致，可交叉验证后端一致性。
+#   * 工作目录均为 x64\Release（相对路径 ..\testDigits 等依赖它）。
+#   * exe 中文输出编码为 GBK(936)。
+#   * 默认保存格式已改为 acm 二进制；build_and_test.ps1 在脚本最前注入
+#     CNN2_TXTMODEL=1，使下列基于文本的 golden（结构行 / 坏夹具 / ep_*.txt）继续生效；
+#     acm 专项用例见末尾「十」。
+#
+# 一键脚本：.\build_and_test.ps1   （见项目根 build_and_test.ps1）
+# ============================================================================
+
+
+# ----------------------------------------------------------------------------
+# 一、夹具（tests\fixtures\，生成一次后固定；回归脚本不会重建数值夹具）
+# ----------------------------------------------------------------------------
+# 生成命令（首次，工作目录 = x64\Release）：
+#   copy x64\Release\model.txt  ..\..\tests\fixtures\model32.txt
+#   CNN2.exe ..\testDigits gen --model            ..\..\tests\fixtures\model64.txt
+#   CNN2.exe ..\testDigits gen --BN --c1 16 --c2 32 --model ..\..\tests\fixtures\model_bn.txt
+#
+# 结构记录（读取每条模型文件的 tag 行）：
+#   model32.txt  （直接复制旧模型，无 #SIG）：
+#       K1 32 1 5 5 | B1 32 | K2 32 32 3 3 | B2 32 | FC 10 1152
+#   model64.txt  （gen 默认 c1=32 / c2=64）：
+#       #SIG BN:OFF | depth=2 | K1 32 1 5 5 | B1 32 | K2 64 32 3 3 | B2 64 | FC 10 2304
+#   model_bn.txt （gen --BN --c1 16 --c2 32）：
+#       #SIG BN:ON | depth=2 | K1 16 1 5 5 | B1 16 | BN1 16 | K2 32 16 3 3 | B2 32 | BN2 32 | FC 10 1152
+#
+# 非法维度夹具（由脚本从 model32.txt 确定性派生，用于报错 golden）：
+#   model_bad_fc20.txt   ：把 FC 行改为 "FC 20 1152"（classes=20 超 MAX_CLASSES）
+#   model_bad_fc999.txt  ：把 FC 行改为 "FC 10 999"（FC 输入维与卷积展平不一致）
+
+
+# ----------------------------------------------------------------------------
+# 二、推理数值 golden（精确到 correct/total）
+# ----------------------------------------------------------------------------
+# 命令格式：..\testDigits test --cpu|--gpu --prep_target 20 --model <夹具>
+# 期望：退出码 = 0，且输出含 “标准准确率: <浮点> (<correct>/<total>)”
+#
+#   1) cpu32  : --cpu --model fixtures\model32.txt            期望 1278/10000
+#   2) gpu32  : --gpu --model fixtures\model32.txt            期望 1278/10000
+#   3) cpu64  : --cpu --model fixtures\model64.txt            期望  309/10000
+#   4) gpu64  : --gpu --model fixtures\model64.txt            期望  309/10000
+#   5) cpubn  : --cpu --BN --model fixtures\model_bn.txt      期望  945/10000
+#   6) gpubn  : --gpu --BN --model fixtures\model_bn.txt      期望  945/10000
+#
+# 说明：cpu/gpu 同一模型期望值一致（后端数值一致性）；这些准确率偏低是
+#       因为夹具是随机初始化模型（未训练），属于“结构/数值指纹”，非性能指标。
+
+
+# ----------------------------------------------------------------------------
+# 三、集成 / TTA golden（同模型两次，确定性）
+# ----------------------------------------------------------------------------
+#   7) tta64  : --gpu --prep_target 20 --fuse logit --tta --tta_k 5
+#               --model "fixtures\model64.txt,fixtures\model64.txt"   期望 303/10000
+#
+# 说明：两模型为同一文件，logit 融合 + 5 路 TTA（log 概率空间平均）。
+#       固定模型与固定数据下逐位可复现，故做精确数值 golden。
+
+
+# ----------------------------------------------------------------------------
+# 四、旧模型兼容 golden（无 #SIG 的最老文件）
+# ----------------------------------------------------------------------------
+#   8) oldcpu : --cpu --prep_target 20 --model model.txt       期望 1278/10000
+#
+# 说明：x64\Release\model.txt 为无 #SIG 的旧格式（FC 10×1152），
+#       必须能按 BN:OFF / depth=2 兼容加载，且准确率与 model32.txt 一致。
+
+
+# ----------------------------------------------------------------------------
+# 五、gen 结构 golden（不比对权重，只比对结构行）
+# ----------------------------------------------------------------------------
+#   9) gen_struct  : gen --model fixtures\_gen_struct.txt
+#        断言结构含：#SIG BN:OFF | depth=2 / K1 32 1 5 5 / B1 32 /
+#                     K2 64 32 3 3 / B2 64 / FC 10 2304
+#  10) gen_bn_struct : gen --BN --c1 8 --c2 8 --model fixtures\_gen_bn_struct.txt
+#        断言结构含：#SIG BN:ON | depth=2 / K1 8 1 5 5 / BN1 8 /
+#                     K2 8 8 3 3 / BN2 8 / FC 10 288
+#
+# 说明：_gen_* 为临时文件，回归结束后由脚本清理。
+
+
+# ----------------------------------------------------------------------------
+# 六、报错 golden（断言退出码 = 1 且含关键提示）
+# ----------------------------------------------------------------------------
+#  11) e_bn_missing : test --cpu --model fixtures\model_bn.txt（缺 --BN）
+#        期望 exit=1 且含 “模型为 BN:ON，但未传 --BN”
+#  12) e_bn_extra   : test --cpu --BN --model fixtures\model64.txt（非 BN 带 --BN）
+#        期望 exit=1 且含 “传了 --BN，但模型为 BN:OFF”
+#  13) e_bkc_cpu_bn : bkc --cpu --BN --model fixtures\model_bn.txt（CPU 不支持 BN）
+#        期望 exit=1 且含 “CPU 训练不支持 BN”
+#  14) e_bad_fc20   : test --cpu --model fixtures\model_bad_fc20.txt
+#        期望 exit=1 且含 “classes 超出 MAX_CLASSES(16)”
+#  15) e_bad_fc999  : test --cpu --model fixtures\model_bad_fc999.txt
+#        期望 exit=1 且含 “FC 输入维度与卷积展平不一致”
+
+
+# ----------------------------------------------------------------------------
+# 七、训练冒烟（可选，1 epoch，1934 张，CPU；不做数值 golden）
+# ----------------------------------------------------------------------------
+#   16) smoke : trainingDigits bkc --epochs 1 --cpu --seed 12345
+#              --model fixtures\_smoke_model.txt
+#        期望：exit=0，输出含 “epoch 0 loss <有限数>”，无崩溃。
+#        参考观测：loss ≈ 0.434261, acc ≈ 0.872285（仅参考，不作断言）。
+
+
+# ----------------------------------------------------------------------------
+# 八、阶段2：可变深度 depth≥3 / #SIG ver=2 / 每层 P<i>（新增，不影响上面 16 条）
+# ----------------------------------------------------------------------------
+# 说明：
+#   * depth=2 的头部仍为 “#SIG BN:OFF | depth=2”，不写 ver=2、不写 P<i>（逐位不变）。
+#   * depth>2 时头部追加 “ | ver=2”，且每层写 “P<i> <stride> <pad> <pool>”。
+#   * P<i> 默认 (1,0,2)（stride=1,pad=0,pool=2）；depth>2 默认 schedule 为
+#     每层 Conv(k=3,pad=1,stride=1) + pool=2（32→16→8→…）。
+#
+#   17) cpud3 : test --cpu --prep_target 20 --model fixtures\model_d3.txt   期望  892/10000
+#   18) gpud3 : test --gpu --prep_target 20 --model fixtures\model_d3.txt   期望  892/10000
+#        固定夹具 model_d3.txt 生成命令（首次，工作目录 = x64\Release）：
+#          CNN2.exe ..\testDigits gen --depth 3 --model ..\..\tests\fixtures\model_d3.txt
+#        结构（depth=3，c1=32,c2=64,c3=64，flat=64*4*4=1024，total=65994）：
+#          #SIG BN:OFF | depth=3 | ver=2
+#          K1 32 1 3 3 | B1 32 | P1 1 1 2
+#          K2 64 32 3 3 | B2 64 | P2 1 1 2
+#          K3 64 64 3 3 | B3 64 | P3 1 1 2
+#          FC 10 1024
+#   19) gen_d3_struct : gen --depth 3 --model fixtures\_gen_d3.txt
+#        断言结构含：#SIG BN:OFF | depth=3 / ver=2 / K1 32 1 3 3 / P1 1 1 2 /
+#                     K2 64 32 3 3 / P2 1 1 2 / K3 64 64 3 3 / P3 1 1 2 / FC 10 1024
+#        说明：_gen_d3 为临时文件，回归结束后由脚本清理。
+
+
+# ----------------------------------------------------------------------------
+# 九、阶段3：异构层 + 残差（identity skip 连接）
+# ----------------------------------------------------------------------------
+# 设计：
+#   * 新 tag R<i> <res> <resFrom>：仅残差层写；res=1 为 identity（本阶段唯一实现）。
+#     语义 y = pool(relu(conv(x))) + layer[resFrom].out，要求源层与本层输出同 C/H/W；
+#     不一致由 validateNetSpec 干净报错；投影残差（res=2）暂不支持、直接报错。
+#   * 残差属 ver=2：#SIG 追加 " | ver=2"；未用残差照旧不写，逐字节兼容旧文件。
+#   * 旧程序读新 R<i> 行会因缺少期望的 K/FC tag 而干净报错（前向不兼容是预期）。
+#   * gen --res --depth N：生成「stem(唯一 pool) + block(pool=0，保持尺寸) +
+#     末层 identity skip 指向 stem」，可表达 ResNet/WRN basic block。
+#
+#   20) cpu_res / gpu_res : test --cpu|--gpu --prep_target 20 --model fixtures\model_res.txt
+#        期望 984/10000（CPU=GPU）。
+#        固定夹具 model_res.txt 生成命令（首次，工作目录 = x64\Release）：
+#          CNN2.exe ..\testDigits gen --res --depth 3 --model ..\..\tests\fixtures\model_res.txt
+#        结构（depth=3，全层 c=32，flat=32*16*16=8192，total=100746）：
+#          #SIG BN:OFF | depth=3 | ver=2
+#          K1 32 1 3 3 | B1 32 | P1 1 1 2
+#          K2 32 32 3 3 | B2 32 | P2 1 1 0
+#          K3 32 32 3 3 | B3 32 | P3 1 1 0 | R3 1 0
+#          FC 10 8192
+#   21) gen_res_struct : gen --res --depth 3 --model fixtures\_gen_res.txt
+#        断言结构含：#SIG BN:OFF | depth=3 / ver=2 / K1 32 1 3 3 / P1 1 1 2 /
+#                     K2 32 32 3 3 / P2 1 1 0 / K3 32 32 3 3 / P3 1 1 0 / R3 1 0 / FC 10 8192
+#        说明：_gen_res 为临时文件，回归结束后由脚本清理。
+#   22) smoke_res : bkc --epochs 1 --cpu（残差模型 fixtures\model_res.txt）
+#        期望 exit=0，输出含有限 loss、无 NaN（覆盖残差前向/反向的梯度分流）。
+#        说明：_smoke_res 为临时文件，回归结束后由脚本清理。
+
+
+# ----------------------------------------------------------------------------
+# 十、阶段8：acm 二进制格式（默认）/ --txtmodel / read
+# ----------------------------------------------------------------------------
+# 背景：默认保存格式已改为 acm 二进制（固定 1024B 头 + fp32 数据区），
+#       既有文本 golden 由 build_and_test.ps1 注入 CNN2_TXTMODEL=1 走 txt 路径保住。
+#
+# 规则（保存格式判定，优先级：后缀 > 开关）：
+#   * .txt  → txt 文本（后缀决定，等同隐含 --txtmodel）
+#   * .acm  → acm 二进制；若同时给 --txtmodel/CNN2_TXTMODEL → 报错退出（冲突）
+#   * 无/其它后缀 → 看开关：默认 acm，--txtmodel/env 时 txt
+#   * 默认模型名：无 --model 时为 model.acm（--txtmodel 时为 model.txt）
+#   * 读侧恒按魔数自动识别（不受 --txtmodel 影响）；acm 大小恒 == 1024 + total*4
+#   * 头 precision != fp32 → read / 加载报「暂不支持」
+#
+# acm 专项回归（build_and_test.ps1 末尾 ===== 8 =====，可用 -OnlyAcm 单独跑）：
+#   acm_default          无 --model → 默认名 model.acm，read 识别为 acm
+#   acm_suffix_acm       gen --model x.acm → acm（read 校验）
+#   acm_suffix_txt       gen --model x.txt → txt（read 校验）
+#   acm_suffix_conflict  gen --model x.acm --txtmodel → exit=1 且提示冲突
+#   acm_txt_equiv        同 seed 的 acm 与 txt，read 结构行完全一致
+#   acm_size             文件大小 == 1024 + total*4（默认 42378 → 170536）
+#   acm_precision        篡改头 precision=1 → read 报「暂不支持」
+#   acm_precision_load   同一坏头 → test 加载报「暂不支持」
+#   acm_read_smoke       read <acm> / read <txt> 均 exit 0
+#
+# 另：新命令 read 用法 —— cnn2 read <模型文件>（或 cnn2 read --model <文件>），
+#     自动识别 acm/txt，打印格式 / #SIG 等价 / 维度 / 逐层 / FC；成功 0，失败 1。

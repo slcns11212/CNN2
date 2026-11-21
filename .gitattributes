@@ -1,0 +1,35 @@
+# 默认按内容自动识别文本/二进制
+* text=auto
+
+# ---------- 源码：统一 LF 入库 ----------
+*.c         text
+*.cc        text
+*.cpp       text
+*.cxx       text
+*.h         text
+*.hpp       text
+*.cu        text
+*.cuh       text
+*.md        text
+
+# ---------- VS 工程 / Windows 脚本：CRLF ----------
+*.sln       text eol=crlf
+*.vcxproj   text eol=crlf
+*.filters   text eol=crlf
+*.bat       text eol=crlf
+*.cmd       text eol=crlf
+*.ps1       text eol=crlf
+*.txt       text eol=crlf
+
+# ---------- 关键：模型权重数值文本，禁止任何行尾/编码转换 ----------
+tests/fixtures/**/*.txt       -text
+bench_results/**/*.txt        -text
+
+# ---------- 明确二进制 ----------
+*.png   binary
+*.jpg   binary
+*.ico   binary
+*.exe   binary
+*.dll   binary
+*.zip   binary
+*.pdb   binary
