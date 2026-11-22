@@ -823,10 +823,11 @@ CPU 与 GPU 两条训练路径都会写日志；**未传 `--log` 时不创建文
 
 ```bat
 set "CUDA_PATH_V12_9=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.9"
-"D:\vc++\MSBuild\Current\Bin\MSBuild.exe" CNN2.vcxproj /p:Configuration=Release /p:Platform=x64
+MSBuild.exe CNN2.vcxproj /p:Configuration=Release /p:Platform=x64
 ```
 
-> MSBuild 实际路径以本机 VS 安装为准（本仓库实测使用 .NET Framework MSBuild 17.14）。
+> MSBuild.exe 通过 PATH 或 vswhere 自动定位（vswhere 位于 VS Installer 目录），
+> 实际路径以本机 VS 安装为准（本仓库实测使用 .NET Framework MSBuild 17.14）。
 > 输出：`x64\Release\CNN2.exe`。构建完成后按第 1.3 节把 exe + 4 个 dll 拷入 `deploy\`。
 
 ### 12.3 发布 / 可复现构建（`release.ps1`）
@@ -844,7 +845,7 @@ set "CUDA_PATH_V12_9=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.9"
 脚本依次执行：
 
 1. 从 `version.h` 解析程序版本 `CNN2_VERSION`（并读出模型格式版本 `CNN2_MODEL_VER`）；
-2. 设 `$env:CUDA_PATH_V12_9` 后调用 `D:\vc++\MSBuild\Current\Bin\MSBuild.exe`
+2. 设 `$env:CUDA_PATH_V12_9` 后调用 `MSBuild.exe（通过 PATH 或 vswhere 自动定位）`
    （缺失时回退 PATH 中的 `MSBuild.exe`）编译 Release x64；编译带**超时保护**，
    超过 `-BuildTimeoutSec` 即杀掉整棵进程树并按失败退出，避免工具链挂起；
 3. 生成 `dist\CNN2-<版本>-win-x64\`，内含：
@@ -862,7 +863,7 @@ set "CUDA_PATH_V12_9=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.9"
 | `Version` | 程序版本（来自 `version.h` 的 `CNN2_VERSION`） |
 | `ModelFormatVer` | 模型格式版本（`ver=N`，来自 `CNN2_MODEL_VER`） |
 | `BuildDate` | 构建时间（取自 `CNN2.exe` 的 `LastWriteTime`，ISO 8601） |
-| `BuildHost` / `BuildUser` | 构建主机名 / 用户名 |
+| `BuildHost` / `BuildUser` | 构建主机 / 用户名（固定占位 `(local)`，不含真实信息） |
 | `GitCommit` | git 提交号；非 git 仓库时为占位 `n/a (非 git 仓库)` |
 | `Toolchain` | 编译器工具集（MSVC v143 / VS2022 / C++17） |
 | `MSBuildVersion` | MSBuild 产品版本 |

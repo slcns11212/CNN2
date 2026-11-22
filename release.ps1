@@ -38,7 +38,18 @@ $sln           = Join-Path $root 'CNN2.sln'
 $relDir        = Join-Path $root 'x64\Release'
 $deployDir     = Join-Path $root 'deploy'
 $distDir       = Join-Path $root 'dist'
-$msbuildDefault = 'D:\vc++\MSBuild\Current\Bin\MSBuild.exe'
+# 可移植 MSBuild 定位：优先 PATH，其次 vswhere，最后回退为 PATH 调用
+function Get-MSBuildPath {
+    $cmd = Get-Command MSBuild.exe -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+    if (Test-Path -LiteralPath $vswhere) {
+        $p = & $vswhere -latest -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' 2>$null | Select-Object -First 1
+        if ($p) { return $p }
+    }
+    return 'MSBuild.exe'
+}
+$msbuildDefault = Get-MSBuildPath
 $cudaPath      = 'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.9'
 # 运行时依赖：随 exe 一起发布，目标机器无需安装 CUDA / VC++ 运行库。
 $runtimeDlls   = @('cudart64_12.dll', 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')
@@ -67,7 +78,7 @@ function Invoke-Build {
     if (-not (Test-Path -LiteralPath $mb)) {
         $cmd = Get-Command MSBuild.exe -ErrorAction SilentlyContinue
         if ($cmd) { $mb = $cmd.Source }
-        else { throw '找不到 MSBuild.exe（请检查 D:\vc++\MSBuild\Current\Bin\MSBuild.exe 或 PATH）' }
+        else { throw '找不到 MSBuild.exe（请安装 Visual Studio 并确保 MSBuild.exe 在 PATH 中）' }
     }
     if (-not (Test-Path -LiteralPath (Join-Path $cudaPath 'bin\nvcc.exe'))) {
         Write-Host ('提示：未找到 CUDA 工具链 ' + $cudaPath + '，继续尝试编译（可能失败）') -ForegroundColor Yellow
@@ -207,8 +218,7 @@ try {
     $exeItem  = Get-Item -LiteralPath (Join-Path $stageDir 'CNN2.exe')
     $buildTime = $exeItem.LastWriteTime.ToString('yyyy-MM-ddTHH:mm:sszzz')
     $tool = Get-ToolchainInfo
-    $hostName = if ($env:COMPUTERNAME) { $env:COMPUTERNAME } else { 'unknown-host' }
-    $userName = if ($env:USERNAME) { $env:USERNAME } else { 'unknown-user' }
+    # 隐私：不写入真实主机名 / 用户名，固定占位。
     $gitInfo  = Get-GitInfo
     # 注意：此处必须用双引号插值，不可在 @() 内用 'x' + $y —— PowerShell 中逗号
     # 优先级高于 +，会把每个 "标签 + 值" 拆成两个数组元素（见阶段4.5 修复记录）。
@@ -218,8 +228,8 @@ try {
         "Version        : $($ver.Version)",
         "ModelFormatVer : ver=$($ver.ModelVer)",
         "BuildDate      : $buildTime",
-        "BuildHost      : $hostName",
-        "BuildUser      : $userName",
+        'BuildHost      : (local)',
+        'BuildUser      : (local)',
         "GitCommit      : $gitInfo",
         'Toolchain      : MSVC v143 (Visual Studio 2022), C++17 (stdcpp17)',
         "MSBuildVersion : $($tool.MSBuild)",

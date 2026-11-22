@@ -8,7 +8,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 主机 | GLDERETOP-1OGFE |
+| 主机 | test-host |
 | 操作系统 | Microsoft Windows 10 专业版 |
 | CPU | Intel(R) Core(TM) i7-7820HK CPU @ 2.90GHz |
 | 核心 | 4 物理核 / 8 逻辑核 |

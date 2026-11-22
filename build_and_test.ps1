@@ -44,7 +44,18 @@ $fx       = Join-Path $testsDir 'fixtures'
 $exe      = Join-Path $rel 'CNN2.exe'
 $sln      = Join-Path $root 'CNN2.sln'
 $tmp      = Join-Path $testsDir '_run'
-$msbuildDefault = 'D:\vc++\MSBuild\Current\Bin\MSBuild.exe'
+# 可移植 MSBuild 定位：优先 PATH，其次 vswhere，最后回退为 PATH 调用
+function Get-MSBuildPath {
+    $cmd = Get-Command MSBuild.exe -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+    if (Test-Path -LiteralPath $vswhere) {
+        $p = & $vswhere -latest -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' 2>$null | Select-Object -First 1
+        if ($p) { return $p }
+    }
+    return 'MSBuild.exe'
+}
+$msbuildDefault = Get-MSBuildPath
 $cudaPath = 'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.9'
 
 $script:pass = 0
@@ -783,7 +794,7 @@ function Invoke-Build {
     $mb = $msbuildDefault
     if (-not (Test-Path -LiteralPath $mb)) {
         $cmd = Get-Command MSBuild.exe -ErrorAction SilentlyContinue
-        if ($cmd) { $mb = $cmd.Source } else { throw '找不到 MSBuild.exe（请检查 D:\vc++\MSBuild\Current\Bin\MSBuild.exe 或 PATH）' }
+        if ($cmd) { $mb = $cmd.Source } else { throw '找不到 MSBuild.exe（请安装 Visual Studio 并确保 MSBuild.exe 在 PATH 中）' }
     }
     $env:CUDA_PATH_V12_9 = $cudaPath
     Write-Host ('编译 Release x64: ' + $sln) -ForegroundColor Cyan
